@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 
 const SOCKET_URL = "https://fly-patient-firefly-4760-production.up.railway.app"
 
-export const socket = io('35.212.94.98', {
+export const socket = io('http://127.0.0.1:80', {
   path: '/socket.io/',
   transports: ['websocket','polling'],
   upgrade: true,
