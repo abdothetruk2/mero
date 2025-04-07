@@ -2,10 +2,11 @@ import { io } from 'socket.io-client';
 
 const SOCKET_URL = "https://fly-patient-firefly-4760-production.up.railway.app"
 
-export const socket = io('/', {
+const socket = io('wss://fly-patient-firefly-4760-production.up.railway.app', {
   path: '/socket.io',
-  transports: ['websocket'],
+  transports: ['websocket'], // Optional but recommended
 });
+
 export const connectSocket = (username) => {
   if (!socket.connected) {
     socket.connect();
