@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 const SOCKET_URL = "https://fly-patient-firefly-4760-production.up.railway.app"
 
 export const socket = io('https://fly-patient-firefly-4760-production.up.railway.app', {
-  path: '/socket.io',
+  path: '/socket.io/',
   transports: ['websocket'], // Optional but recommended
 });
 
