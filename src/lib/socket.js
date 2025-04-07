@@ -6,6 +6,12 @@ export const socket = io('/', {
   path: '/socket.io',
   transports: ['websocket'],
 });
+export const connectSocket = (username) => {
+  if (!socket.connected) {
+    socket.connect();
+    socket.emit('join', username);
+  }
+};
 
 
 export const disconnectSocket = () => {
