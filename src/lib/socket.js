@@ -1,16 +1,13 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = 'https://fly-patient-firefly-4760-production.up.railway.app';
+const SOCKET_URL = "localhost:3000"
 
-export const socket = io();
-
-export const connectSocket = (username) => {
-  if (!socket.connected) {
-    socket.connect();
-    socket.emit('join', username);
-  }
-};
-
+export const socket = io(SOCKET_URL, {
+  autoConnect: false,
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+});
 export const disconnectSocket = () => {
   if (socket.connected) {
     socket.disconnect();
