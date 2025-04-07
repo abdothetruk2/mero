@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = "https://fly-patient-firefly-4760-production.up.railway.app/socket.io"
+const SOCKET_URL = "https://fly-patient-firefly-4760-production.up.railway.app"
 
 export const socket = io(SOCKET_URL, {
   autoConnect: false,
