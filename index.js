@@ -1,32 +1,52 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import cors from 'cor
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { dirname } from 'path';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
 dotenv.config();
+
+// Resolve __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
 // Configure CORS before other middleware
 app.use(cors({
-  origin: "*",
+  origin: '*',
   methods: ['GET', 'POST'],
-  credentials: true
+  credentials: true,
 }));
 
 app.use(express.json());
-app.use(express.static('dist'));
 
+// Serve static files from dist
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Fallback to index.html for SPA routes (excluding API and Socket.IO)
+app.get('*', (req, res, next) => {
+  const isApi = req.path.startsWith('/api/');
+  const isSocket = req.path.startsWith('/socket.io/');
+  if (isApi || isSocket) return next();
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+// Create HTTP server and attach Socket.IO
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin:"*",
+    origin: '*',
     methods: ['GET', 'POST'],
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
 // Initialize Supabase client
@@ -101,39 +121,33 @@ io.on('connection', (socket) => {
   // Handle joining chat
   socket.on('join', async (username) => {
     try {
-      // Try to upsert the user with the given username
       const { data, error } = await supabase
         .from('chat_users')
-        .upsert({ 
+        .upsert({
           username,
-          last_seen: new Date().toISOString()
+          last_seen: new Date().toISOString(),
         }, {
           onConflict: 'username',
-          ignoreDuplicates: false
+          ignoreDuplicates: false,
         })
         .select()
         .single();
 
       if (error) {
-        // If there's a conflict, generate a new unique username
         const newUsername = `${username}_${Math.random().toString(36).substring(2, 5)}`;
         const { data: newUser, error: retryError } = await supabase
           .from('chat_users')
-          .insert([{ 
-            username: newUsername,
-            last_seen: new Date().toISOString()
-          }])
+          .insert([{ username: newUsername, last_seen: new Date().toISOString() }])
           .select()
           .single();
 
         if (retryError) throw retryError;
-        
         socket.username = newUsername;
         socket.userId = newUser.id;
         io.emit('user_joined', newUser);
         return;
       }
-      
+
       socket.username = data.username;
       socket.userId = data.id;
       io.emit('user_joined', data);
@@ -147,10 +161,7 @@ io.on('connection', (socket) => {
     try {
       const { data, error } = await supabase
         .from('messages')
-        .insert({
-          content: message,
-          user_id: socket.userId
-        })
+        .insert({ content: message, user_id: socket.userId })
         .select(`
           *,
           user:chat_users!messages_sender_fkey(username, avatar_url)
@@ -158,7 +169,6 @@ io.on('connection', (socket) => {
         .single();
 
       if (error) throw error;
-      
       io.emit('new_message', data);
     } catch (error) {
       socket.emit('error', error.message);
@@ -173,7 +183,6 @@ io.on('connection', (socket) => {
           .from('chat_users')
           .update({ last_seen: new Date().toISOString() })
           .eq('id', socket.userId);
-
         io.emit('user_left', { userId: socket.userId });
       } catch (error) {
         console.error('Error updating last_seen:', error);
