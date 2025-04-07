@@ -1,8 +1,8 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = "https://fly-patient-firefly-4760-production.up.railway.app"
+const SOCKET_URL = "https://mero2.up.railway.app"
 
-export const socket = io('/', {
+export const socket = io(SOCKET_URL, {
   path: '/socket.io/',
   transports: ['websocket','polling'],
   upgrade: true,
