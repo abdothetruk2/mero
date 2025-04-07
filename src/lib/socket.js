@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = "localhost:3000"
+const SOCKET_URL = "http://localhost:3000"
 
 export const socket = io(SOCKET_URL, {
   autoConnect: false,
@@ -8,6 +8,14 @@ export const socket = io(SOCKET_URL, {
   reconnectionAttempts: 5,
   reconnectionDelay: 1000
 });
+
+export const connectSocket = (username) => {
+  if (!socket.connected) {
+    socket.connect();
+    socket.emit('join', username);
+  }
+};
+
 export const disconnectSocket = () => {
   if (socket.connected) {
     socket.disconnect();
