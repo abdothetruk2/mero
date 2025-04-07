@@ -4,7 +4,9 @@ const SOCKET_URL = "https://fly-patient-firefly-4760-production.up.railway.app"
 
 export const socket = io('https://fly-patient-firefly-4760-production.up.railway.app', {
   path: '/socket.io/',
-  transports: ['websocket'], // Optional but recommended
+  transports: ['websocket','polling'],
+  upgrade: true,
+  secure: true
 });
 
 export const connectSocket = (username) => {
