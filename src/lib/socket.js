@@ -5,7 +5,7 @@ const SOCKET_URL = "mero2.up.railway.app"
 export const socket = io(SOCKET_URL, {
   path: '/socket.io/',
   transports: ['websocket','polling'],
-  secure: true
+  secure: false
 });
 
 export const connectSocket = (username) => {
