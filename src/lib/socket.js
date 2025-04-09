@@ -3,7 +3,6 @@ import { io } from 'socket.io-client';
 const SOCKET_URL = "mero2.up.railway.app"
 
 export const socket = io(SOCKET_URL, {
-  path: '/socket.io/',
    autoConnect: false,
   reconnection: true,
   reconnectionAttempts: 5,
