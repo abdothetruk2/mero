@@ -1,14 +1,12 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = "http://localhost:3000"
+const SOCKET_URL = 'http://localhost:3000';
 
 export const socket = io(SOCKET_URL, {
-   autoConnect: false,
+  autoConnect: false,
   reconnection: true,
   reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  transports: ['websocket','polling'],
-  secure: true,
+  reconnectionDelay: 1000
 });
 
 export const connectSocket = (username) => {
@@ -17,7 +15,6 @@ export const connectSocket = (username) => {
     socket.emit('join', username);
   }
 };
-
 
 export const disconnectSocket = () => {
   if (socket.connected) {

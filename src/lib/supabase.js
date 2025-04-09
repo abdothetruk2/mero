@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = "https://oeikxnecjeqdzqvqspxs.supabase.co";
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9laWt4bmVjamVxZHpxdnFzcHhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MDYyNDksImV4cCI6MjA1OTE4MjI0OX0.J4-PGG_oYZJjwi6iN0nCQeBG3aUZfwuGs7CqTwjQEek"
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -12,7 +12,7 @@ export const getOrCreateUser = async (username) => {
       .from('chat_users')
       .select('*')
       .eq('username', username)
-      .maybeSingle(); // Use maybeSingle instead of single to avoid 406 error
+      .maybeSingle();
 
     // If user doesn't exist, create a new one
     if (!user) {
@@ -31,4 +31,35 @@ export const getOrCreateUser = async (username) => {
     console.error('Error in getOrCreateUser:', error);
     throw error;
   }
+};
+
+// Subscribe to real-time updates
+export const subscribeToMessages = (callback) => {
+  return supabase
+    .channel('messages')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'messages'
+      },
+      callback
+    )
+    .subscribe();
+};
+
+export const subscribeToUsers = (callback) => {
+  return supabase
+    .channel('users')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'chat_users'
+      },
+      callback
+    )
+    .subscribe();
 };
