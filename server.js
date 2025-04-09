@@ -1,10 +1,17 @@
- require('dotenv').config();
-const express = require('express');
-const { createServer } = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
-const path = require('path');
+import dotenv from 'dotenv';
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Equivalent to __dirname in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config();
 
 const app = express();
 
@@ -18,6 +25,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Create HTTP server and Socket.IO instance
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -33,12 +41,12 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_ANON_KEY
 );
 
-// Heartbeat endpoint
+// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Get all rooms
+// Get all chat rooms
 app.get('/api/rooms', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -53,15 +61,16 @@ app.get('/api/rooms', async (req, res) => {
   }
 });
 
-// Get all messages
+// Get all messages with user and reactions
 app.get('/api/messages', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('messages')
-      .select(`*,
+      .select(`
+        *,
         user:chat_users!messages_sender_fkey(username, avatar_url),
-        message_reactions(id, emoji, user_id, chat_users(username))`
-      )
+        message_reactions(id, emoji, user_id, chat_users(username))
+      `)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
@@ -86,10 +95,11 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Socket.IO connection
+// Handle socket connections
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
+  // User joins
   socket.on('join', async (username) => {
     try {
       let { data, error } = await supabase
@@ -119,6 +129,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle incoming chat messages
   socket.on('chat_message', async (message) => {
     try {
       const { data, error } = await supabase
@@ -135,6 +146,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // On disconnect, update last seen and notify others
   socket.on('disconnect', async () => {
     if (socket.userId) {
       try {
@@ -152,7 +164,12 @@ io.on('connection', (socket) => {
   });
 });
 
+// Start the server
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Optionally export the app and server if needed
+export { app, httpServer };
+
