@@ -1,48 +1,30 @@
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-dotenv.config();
-
-// Resolve __dirname in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+ require('dotenv').config();
+const express = require('express');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const { createClient } = require('@supabase/supabase-js');
+const path = require('path');
 
 const app = express();
 
-// Configure CORS before other middleware
+// Configure CORS
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
-  credentials: true,
+  credentials: true
 }));
 
 app.use(express.json());
-
-// Serve static files from dist
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Fallback to index.html for SPA routes (excluding API and Socket.IO)
-app.get('*', (req, res, next) => {
-  const isApi = req.path.startsWith('/api/');
-  const isSocket = req.path.startsWith('/socket.io/');
-  if (isApi || isSocket) return next();
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
-// Create HTTP server and attach Socket.IO
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
-    credentials: true,
-  },
+    credentials: true
+  }
 });
 
 // Initialize Supabase client
@@ -76,16 +58,10 @@ app.get('/api/messages', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('messages')
-      .select(`
-        *,
+      .select(`*,
         user:chat_users!messages_sender_fkey(username, avatar_url),
-        message_reactions(
-          id,
-          emoji,
-          user_id,
-          chat_users(username)
-        )
-      `)
+        message_reactions(id, emoji, user_id, chat_users(username))`
+      )
       .order('created_at', { ascending: true });
 
     if (error) throw error;
@@ -110,68 +86,55 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Socket.IO connection handling
+// Socket.IO connection
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  // Handle joining chat
   socket.on('join', async (username) => {
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('chat_users')
-        .upsert({
-          username,
-          last_seen: new Date().toISOString(),
-        }, {
-          onConflict: 'username',
-          ignoreDuplicates: false,
-        })
+        .upsert({ username, last_seen: new Date().toISOString() }, { onConflict: 'username' })
         .select()
         .single();
 
       if (error) {
         const newUsername = `${username}_${Math.random().toString(36).substring(2, 5)}`;
-        const { data: newUser, error: retryError } = await supabase
+        const result = await supabase
           .from('chat_users')
           .insert([{ username: newUsername, last_seen: new Date().toISOString() }])
           .select()
           .single();
 
-        if (retryError) throw retryError;
-        socket.username = newUsername;
-        socket.userId = newUser.id;
-        io.emit('user_joined', newUser);
-        return;
+        if (result.error) throw result.error;
+        data = result.data;
       }
 
       socket.username = data.username;
       socket.userId = data.id;
       io.emit('user_joined', data);
+
     } catch (error) {
       socket.emit('error', error.message);
     }
   });
 
-  // Handle chat messages
   socket.on('chat_message', async (message) => {
     try {
       const { data, error } = await supabase
         .from('messages')
         .insert({ content: message, user_id: socket.userId })
-        .select(`
-          *,
-          user:chat_users!messages_sender_fkey(username, avatar_url)
-        `)
+        .select('*, user:chat_users!messages_sender_fkey(username, avatar_url)')
         .single();
 
       if (error) throw error;
       io.emit('new_message', data);
+
     } catch (error) {
       socket.emit('error', error.message);
     }
   });
 
-  // Handle user disconnection
   socket.on('disconnect', async () => {
     if (socket.userId) {
       try {
@@ -179,6 +142,7 @@ io.on('connection', (socket) => {
           .from('chat_users')
           .update({ last_seen: new Date().toISOString() })
           .eq('id', socket.userId);
+
         io.emit('user_left', { userId: socket.userId });
       } catch (error) {
         console.error('Error updating last_seen:', error);
@@ -188,7 +152,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start server
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
