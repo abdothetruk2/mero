@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { supabase, getOrCreateUser } from '../lib/supabase';
 import { socket, connectSocket, disconnectSocket } from '../lib/socket';
 import SunAnimation from './SunAnimation.vue';
@@ -20,20 +20,15 @@ const privateMessageTo = ref(null);
 const showCreateRoomModal = ref(false);
 const newRoomName = ref('');
 const newRoomDescription = ref('');
-const isAdmin = ref(false);
-const showUserList = ref(false);
-const users = ref([]);
 
 const filteredMessages = computed(() => {
   return messages.value.filter(msg => {
     if (selectedRoom.value) {
       return msg.room_id === selectedRoom.value.id;
     }
-    return !msg.room_id && (
-      !msg.is_private || 
+    return !msg.room_id && (!msg.is_private || 
       msg.user_id === currentUser.value?.id || 
-      msg.recipient_id === currentUser.value?.id
-    );
+      msg.recipient_id === currentUser.value?.id);
   });
 });
 
@@ -43,23 +38,9 @@ const scrollToBottom = () => {
   }
 };
 
-const loadUsers = async () => {
-  try {
-    const { data, error } = await supabase
-      .from('chat_users')
-      .select('*')
-      .order('username');
-
-    if (error) throw error;
-    users.value = data;
-  } catch (error) {
-    console.error('Error loading users:', error);
-  }
-};
-
 const loadMessages = async () => {
   try {
-    let query = supabase
+    const { data, error } = await supabase
       .from('messages')
       .select(`
         *,
@@ -68,19 +49,13 @@ const loadMessages = async () => {
           id,
           emoji,
           user_id,
-          reactor:chat_users!message_reactions_user_id_fkey_reactor(username)
+          reactor:chat_users!reactions_reactor_fk(username)
         )
       `)
       .order('created_at', { ascending: true });
 
-    if (selectedRoom.value) {
-      query = query.eq('room_id', selectedRoom.value.id);
-    } else {
-      query = query.or(`is_private.eq.false,and(is_private.eq.true,or(user_id.eq.${currentUser.value?.id},recipient_id.eq.${currentUser.value?.id}))`);
-    }
-
-    const { data, error } = await query;
     if (error) throw error;
+
     messages.value = data;
     scrollToBottom();
   } catch (error) {
@@ -96,6 +71,7 @@ const loadRooms = async () => {
       .order('created_at', { ascending: true });
 
     if (error) throw error;
+
     rooms.value = data;
   } catch (error) {
     console.error('Error loading rooms:', error);
@@ -103,111 +79,103 @@ const loadRooms = async () => {
 };
 
 const handleFileUpload = async (event) => {
+  if (!currentUser.value) {
+    alert('Please enter your username first');
+    event.target.value = '';
+    return;
+  }
+
   const file = event.target.files[0];
   if (!file) return;
 
-  try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random()}.${fileExt}`;
-    const filePath = `${fileName}`;
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${Math.random()}.${fileExt}`;
+  const filePath = `${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(filePath, file);
+  const { error: uploadError } = await supabase.storage
+    .from('avatars')
+    .upload(filePath, file);
 
-    if (uploadError) throw uploadError;
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filePath);
-
-    await supabase
-      .from('chat_users')
-      .update({ avatar_url: publicUrl })
-      .eq('id', currentUser.value.id);
-
-    currentUser.value.avatar_url = publicUrl;
-  } catch (error) {
-    console.error('Error uploading file:', error);
+  if (uploadError) {
+    console.error('Error uploading file:', uploadError);
+    return;
   }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('avatars')
+    .getPublicUrl(filePath);
+
+  await supabase
+    .from('chat_users')
+    .update({ avatar_url: publicUrl })
+    .eq('id', currentUser.value.id);
+
+  currentUser.value.avatar_url = publicUrl;
 };
 
 const addReaction = async (messageId, emoji) => {
-  try {
-    const { error } = await supabase
-      .from('message_reactions')
-      .insert({
-        message_id: messageId,
-        user_id: currentUser.value.id,
-        emoji
-      });
+  const { error } = await supabase
+    .from('message_reactions')
+    .insert({
+      message_id: messageId,
+      user_id: currentUser.value.id,
+      emoji
+    });
 
-    if (error) throw error;
-    await loadMessages();
-  } catch (error) {
+  if (error) {
     console.error('Error adding reaction:', error);
+    return;
   }
+
+  await loadMessages();
 };
 
 const createRoom = async () => {
-  if (!newRoomName.value.trim() || !isAdmin.value) return;
+  if (!newRoomName.value.trim()) return;
 
-  try {
-    const { data, error } = await supabase
-      .from('chat_rooms')
-      .insert({
-        name: newRoomName.value,
-        description: newRoomDescription.value,
-        created_by: currentUser.value.id
-      })
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('chat_rooms')
+    .insert({
+      name: newRoomName.value,
+      description: newRoomDescription.value,
+      created_by: currentUser.value.id
+    })
+    .select()
+    .single();
 
-    if (error) throw error;
-
-    await supabase
-      .from('room_members')
-      .insert({
-        room_id: data.id,
-        user_id: currentUser.value.id
-      });
-
-    rooms.value.push(data);
-    showCreateRoomModal.value = false;
-    newRoomName.value = '';
-    newRoomDescription.value = '';
-    selectedRoom.value = data;
-    await loadMessages();
-  } catch (error) {
+  if (error) {
     console.error('Error creating room:', error);
+    return;
   }
+
+  await supabase
+    .from('room_members')
+    .insert({
+      room_id: data.id,
+      user_id: currentUser.value.id
+    });
+
+  rooms.value.push(data);
+  showCreateRoomModal.value = false;
+  newRoomName.value = '';
+  newRoomDescription.value = '';
 };
 
 const sendMessage = async () => {
   if (!newMessage.value.trim() || !currentUser.value) return;
 
-  try {
-    const messageData = {
-      content: newMessage.value,
-      user_id: currentUser.value.id,
-      room_id: selectedRoom.value?.id,
-      is_private: !!privateMessageTo.value,
-      recipient_id: privateMessageTo.value?.id
-    };
+  const messageData = {
+    content: newMessage.value,
+    user_id: currentUser.value.id,
+    room_id: selectedRoom.value?.id,
+    is_private: !!privateMessageTo.value,
+    recipient_id: privateMessageTo.value?.id
+  };
 
-    const { error } = await supabase
-      .from('messages')
-      .insert(messageData);
-
-    if (error) throw error;
-
-    newMessage.value = '';
-    isTyping.value = false;
-    privateMessageTo.value = null;
-    await loadMessages();
-  } catch (error) {
-    console.error('Error sending message:', error);
-  }
+  socket.emit('chat_message', messageData);
+  newMessage.value = '';
+  isTyping.value = false;
+  privateMessageTo.value = null;
 };
 
 const handleTyping = () => {
@@ -217,62 +185,29 @@ const handleTyping = () => {
   }, 2000);
 };
 
-const startPrivateMessage = (user) => {
-  if (user.id === currentUser.value.id) return;
-  privateMessageTo.value = user;
-  showUserList.value = false;
-};
-
 const joinChat = async () => {
   if (!username.value.trim()) return;
   
   try {
     currentUser.value = await getOrCreateUser(username.value);
-    isAdmin.value = await checkAdminStatus(currentUser.value.id);
     connectSocket(currentUser.value.username);
     showUsernameForm.value = false;
-    await Promise.all([
-      loadMessages(),
-      loadRooms(),
-      loadUsers()
-    ]);
+    await loadMessages();
+    await loadRooms();
   } catch (error) {
     console.error('Error joining chat:', error);
   }
 };
 
-const checkAdminStatus = async (userId) => {
-  try {
-    const { data, error } = await supabase
-      .from('chat_users')
-      .select('is_admin')
-      .eq('id', userId)
-      .single();
-
-    if (error) throw error;
-    return data?.is_admin || false;
-  } catch (error) {
-    console.error('Error checking admin status:', error);
-    return false;
-  }
-};
-
 onMounted(() => {
-  socket.on('new_message', async () => {
-    await loadMessages();
-  });
-
-  socket.on('user_joined', async () => {
-    await loadUsers();
+  socket.on('new_message', (message) => {
+    messages.value.push(message);
+    scrollToBottom();
   });
 });
 
 onUnmounted(() => {
   disconnectSocket();
-});
-
-watch(selectedRoom, async () => {
-  await loadMessages();
 });
 </script>
 
@@ -336,31 +271,15 @@ watch(selectedRoom, async () => {
           </button>
         </div>
         <button
-          
           @click="showCreateRoomModal = true"
           class="mt-4 w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-cormorant transition-smooth hover:shadow-glow"
         >
           Create Chamber
         </button>
-        <button
-          @click="showUserList = true"
-          class="mt-2 w-full px-4 py-2 bg-primary-100 text-primary-700 rounded-lg hover:bg-primary-200 font-cormorant transition-smooth"
-        >
-          Private Message
-        </button>
       </div>
 
       <!-- Messages Container -->
       <div class="flex-1 flex flex-col">
-        <div class="bg-primary-700 text-white p-4 shadow-lg">
-          <h2 class="text-xl font-cormorant">
-            {{ selectedRoom ? selectedRoom.name : privateMessageTo ? `Private Chat with ${privateMessageTo.username}` : 'Main Hall' }}
-          </h2>
-          <p class="text-sm text-primary-200 font-spectral">
-            {{ selectedRoom ? selectedRoom.description : privateMessageTo ? 'Private conversation' : 'Welcome to the main discussion area' }}
-          </p>
-        </div>
-
         <div 
           ref="messageContainer"
           class="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-primary-50 to-blue-50"
@@ -381,7 +300,7 @@ watch(selectedRoom, async () => {
               >
                 <div class="flex items-center space-x-2 mb-1">
                   <img 
-                    :src="message.user?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${message.user?.username}`" 
+                    :src="message.user?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + message.user?.username" 
                     class="w-8 h-8 rounded-full shadow-md transition-smooth hover:scale-110"
                     :alt="message.user?.username"
                   />
@@ -485,37 +404,6 @@ watch(selectedRoom, async () => {
             </button>
           </div>
         </form>
-      </div>
-    </div>
-
-    <!-- User List Modal for Private Messages -->
-    <div v-if="showUserList" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center animate-fade-in">
-      <div class="bg-white p-6 rounded-lg shadow-xl w-96 animate-scale-in">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-xl font-cormorant text-primary-800">Select User for Private Message</h3>
-          <button
-            @click="showUserList = false"
-            class="text-gray-500 hover:text-gray-700"
-          >
-            ×
-          </button>
-        </div>
-        <div class="max-h-96 overflow-y-auto">
-          <button
-            v-for="user in users"
-            :key="user.id"
-            @click="startPrivateMessage(user)"
-            class="w-full p-3 text-left hover:bg-primary-50 rounded-lg mb-2 transition-smooth flex items-center space-x-3"
-            :class="{ 'opacity-50 cursor-not-allowed': user.id === currentUser.id }"
-          >
-            <img 
-              :src="user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`"
-              class="w-8 h-8 rounded-full"
-              :alt="user.username"
-            />
-            <span class="font-cormorant">{{ user.username }}</span>
-          </button>
-        </div>
       </div>
     </div>
 
