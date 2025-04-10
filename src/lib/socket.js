@@ -1,10 +1,12 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = 'http://fly-patient-firefly-4760.fly.dev';
+const SOCKET_URL = 'http://localhost:3000';
 
 export const socket = io(SOCKET_URL, {
-  transports: ['websocket'],
-  secure: true
+  autoConnect: false,
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
 });
 
 export const connectSocket = (username) => {

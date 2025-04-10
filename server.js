@@ -1,29 +1,35 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
-import { dirname } from 'path';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Equivalent to __dirname in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 dotenv.config();
 
 const app = express();
 
-// Configure CORS before other middleware
+// Configure CORS
 app.use(cors({
-  origin: "*",
+  origin: '*',
   methods: ['GET', 'POST'],
   credentials: true
 }));
 
 app.use(express.json());
-app.use(express.static('dist'));
+app.use(express.static(path.join(__dirname, 'dist')));
 
+// Create HTTP server and Socket.IO instance
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin:"*",
+    origin: '*',
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -35,12 +41,12 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_ANON_KEY
 );
 
-// Heartbeat endpoint
+// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Get all rooms
+// Get all chat rooms
 app.get('/api/rooms', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -55,7 +61,7 @@ app.get('/api/rooms', async (req, res) => {
   }
 });
 
-// Get all messages
+// Get all messages with user and reactions
 app.get('/api/messages', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -63,12 +69,7 @@ app.get('/api/messages', async (req, res) => {
       .select(`
         *,
         user:chat_users!messages_sender_fkey(username, avatar_url),
-        message_reactions(
-          id,
-          emoji,
-          user_id,
-          chat_users(username)
-        )
+        message_reactions(id, emoji, user_id, chat_users(username))
       `)
       .order('created_at', { ascending: true });
 
@@ -94,78 +95,58 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Socket.IO connection handling
+// Handle socket connections
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  // Handle joining chat
+  // User joins
   socket.on('join', async (username) => {
     try {
-      // Try to upsert the user with the given username
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('chat_users')
-        .upsert({ 
-          username,
-          last_seen: new Date().toISOString()
-        }, {
-          onConflict: 'username',
-          ignoreDuplicates: false
-        })
+        .upsert({ username, last_seen: new Date().toISOString() }, { onConflict: 'username' })
         .select()
         .single();
 
       if (error) {
-        // If there's a conflict, generate a new unique username
         const newUsername = `${username}_${Math.random().toString(36).substring(2, 5)}`;
-        const { data: newUser, error: retryError } = await supabase
+        const result = await supabase
           .from('chat_users')
-          .insert([{ 
-            username: newUsername,
-            last_seen: new Date().toISOString()
-          }])
+          .insert([{ username: newUsername, last_seen: new Date().toISOString() }])
           .select()
           .single();
 
-        if (retryError) throw retryError;
-        
-        socket.username = newUsername;
-        socket.userId = newUser.id;
-        io.emit('user_joined', newUser);
-        return;
+        if (result.error) throw result.error;
+        data = result.data;
       }
-      
+
       socket.username = data.username;
       socket.userId = data.id;
       io.emit('user_joined', data);
+
     } catch (error) {
       socket.emit('error', error.message);
     }
   });
 
-  // Handle chat messages
+  // Handle incoming chat messages
   socket.on('chat_message', async (message) => {
     try {
       const { data, error } = await supabase
         .from('messages')
-        .insert({
-          content: message,
-          user_id: socket.userId
-        })
-        .select(`
-          *,
-          user:chat_users!messages_sender_fkey(username, avatar_url)
-        `)
+        .insert({ content: message, user_id: socket.userId })
+        .select('*, user:chat_users!messages_sender_fkey(username, avatar_url)')
         .single();
 
       if (error) throw error;
-      
       io.emit('new_message', data);
+
     } catch (error) {
       socket.emit('error', error.message);
     }
   });
 
-  // Handle user disconnection
+  // On disconnect, update last seen and notify others
   socket.on('disconnect', async () => {
     if (socket.userId) {
       try {
@@ -183,8 +164,12 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start server
-const PORT = process.env.PORT || 80;
+// Start the server
+const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Optionally export the app and server if needed
+export { app, httpServer };
+
